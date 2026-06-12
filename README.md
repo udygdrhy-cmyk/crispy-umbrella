@@ -1,707 +1,381 @@
-local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
-local camera = Workspace.CurrentCamera
+local camera = workspace.CurrentCamera
 
-local UI_NAME = "AdminQMenu_CircleNotification"
-local myScreenGui = nil
-local myFrame = nil
-local notifyContainer = nil
+local oldGui = player.PlayerGui:FindFirstChild("FlySystemGUI")
+if oldGui then oldGui:Destroy() end
 
--- [ตัวแปรสถานะระบบต่างๆ]
-local clayGraphicsEnabled = _G.ClayGraphicsEnabled or false
-local originalMaterials = _G.OriginalMaterials or {}
-_G.OriginalMaterials = originalMaterials
-
-local speedEnabled = false
-local jumpEnabled = false
-local infJumpEnabled = false
-local noclipEnabled = false
-local flyEnabled = false
-local ramEnabled = false
-local isSprinting = false  -- 🏃 สถานะกดค้างปุ่มวิ่ง
-local spinEnabled = false  -- 🌪️ สถานะระบบหมุน (SS)
-local spinSpeed = 5000     -- 🌪️ ความเร็วหมุน
-local spinConnection = nil -- 🌪️ ตัวแปรสำหรับ Loop หมุน
-
--- 🎯 ตัวแปรระบบล็อคหัว (Head Lock)
-local headLockEnabled = false
-local headLockTarget = nil
-local headLockKeybind = Enum.KeyCode.E
-local headLockConnection = nil
-local globalToggleHeadLockBtn = nil
-local headLockTargetLabel = nil
-
--- [ตัวแปรระบบ ESP]
-local espEnabled = false
-local espMaxDistance = 500
-local espShowLines = true
-local espShowNames = true
-local espShowDistance = true
-local espContainer = nil
-local espObjects = {}
-local espConnection = nil
-
-local customSpeed = 50     -- 🏃 ค่าความเร็วมาตรฐานเมื่อเปิดปุ่ม หรือกดปุ่มวิ่ง
-local sprintMultiplier = 2 -- 🏃 SPEED x2! เมื่อกดปุ่มวิ่ง ความเร็วจะ x2 ของค่าที่ตั้ง
-local customJump = 50
-local flySpeed = 50
-local normalWalkSpeed = 24 -- 🏃 ความเร็วเดินปกติ
-
--- [ตัวแปรปุ่มลัด]
-local flyKeybind    = Enum.KeyCode.CapsLock
-local clayKeybind   = Enum.KeyCode.L
-local ramKeybind    = Enum.KeyCode.K
-local espKeybind    = Enum.KeyCode.Z
-local sprintKeybind = Enum.KeyCode.LeftControl -- 🏃 ปุ่มลัดวิ่งเร็ว (ค่าเริ่มต้น Ctrl)
-local spinKeybind   = Enum.KeyCode.X          -- 🌪️ ปุ่มลัดระบบหมุน (SS)
-
+-- ตัวแปรสถานะ
+local flying = false
+local runningFast = false
+local jumpingHigh = false
+local espPlayersEnabled = false
+local espNPCsEnabled = false
 local bodyVelocity = nil
-local bodyGyro     = nil
-local flyConnection = nil
-local ramConnection = nil
+local bodyGyro = nil
+local flySpeed = 80
+local runSpeed = 80
+local jumpPower = 150
+local espObjects = {} 
+local npcCache = {} 
+local holdingUp = false 
+local holdingDown = false 
 
-local globalToggleClayBtn = nil
-local globalToggleFlyBtn  = nil
-local globalToggleRamBtn  = nil
-local globalToggleEspBtn  = nil
-local globalToggleSpinBtn = nil -- 🌪️ ปุ่ม UI ระบบหมุน
+-- ==========================================
+-- สร้าง GUI
+-- ==========================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FlySystemGUI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = player.PlayerGui
 
-local function trimString(s)
-	return s:match("^%s*(.-)%s*$")
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(0, 150, 0, 30)
+statusLabel.Position = UDim2.new(0, -160, 0.5, 0)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = Color3.fromRGB(0, 255, 120)
+statusLabel.Text = "✈ กำลังบินอยู่"
+statusLabel.Font = Enum.Font.GothamBold
+statusLabel.TextSize = 16
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = screenGui
+
+local notifyLabel = Instance.new("TextLabel")
+notifyLabel.Size = UDim2.new(0, 280, 0, 50)
+notifyLabel.Position = UDim2.new(0.5, 0, 1, 60)
+notifyLabel.AnchorPoint = Vector2.new(0.5, 1)
+notifyLabel.BackgroundColor3 = Color3.fromRGB(40, 150, 40)
+notifyLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+notifyLabel.Text = "✅ เปิดใช้งานระบบบิน"
+notifyLabel.Font = Enum.Font.GothamBold
+notifyLabel.TextSize = 16
+notifyLabel.Parent = screenGui
+Instance.new("UICorner", notifyLabel).CornerRadius = UDim.new(0, 8)
+local notifyStroke = Instance.new("UIStroke")
+notifyStroke.Color = Color3.fromRGB(100, 255, 100)
+notifyStroke.Thickness = 1.5
+notifyStroke.Parent = notifyLabel
+
+local mobileBtn = Instance.new("ImageButton")
+mobileBtn.Size = UDim2.new(0, 55, 0, 55) 
+mobileBtn.Position = UDim2.new(0, 20, 0, 20) 
+mobileBtn.BackgroundTransparency = 0.3
+mobileBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+mobileBtn.Image = "rbxassetid://133493400381536" 
+mobileBtn.Visible = true 
+mobileBtn.Parent = screenGui
+Instance.new("UICorner", mobileBtn).CornerRadius = UDim.new(0.5, 0)
+
+-- ปุ่มบินมือถือ (ปรับสีให้เข้มขึ้น ไม่เรืองแสง)
+local btnUp = Instance.new("TextButton")
+btnUp.Size = UDim2.new(0, 60, 0, 60)
+btnUp.Position = UDim2.new(1, -80, 1, -220)
+btnUp.BackgroundColor3 = Color3.fromRGB(50, 50, 50) 
+btnUp.BackgroundTransparency = 0.5
+btnUp.Text = "⬆"
+btnUp.TextColor3 = Color3.fromRGB(200, 200, 200)
+btnUp.Font = Enum.Font.GothamBold
+btnUp.TextSize = 30
+btnUp.Visible = false
+btnUp.Parent = screenGui
+Instance.new("UICorner", btnUp).CornerRadius = UDim.new(0.5, 0)
+
+local btnDown = Instance.new("TextButton")
+btnDown.Size = UDim2.new(0, 60, 0, 60)
+btnDown.Position = UDim2.new(1, -80, 1, -150)
+btnDown.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+btnDown.BackgroundTransparency = 0.5
+btnDown.Text = "⬇"
+btnDown.TextColor3 = Color3.fromRGB(200, 200, 200)
+btnDown.Font = Enum.Font.GothamBold
+btnDown.TextSize = 30
+btnDown.Visible = false
+btnDown.Parent = screenGui
+Instance.new("UICorner", btnDown).CornerRadius = UDim.new(0.5, 0)
+
+btnUp.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then holdingUp = true end end)
+btnUp.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then holdingUp = false end end)
+btnDown.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then holdingDown = true end end)
+btnDown.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then holdingDown = false end end)
+
+-- ==========================================
+-- หน้าต่าง UI หลัก
+-- ==========================================
+local togglePanel = Instance.new("Frame")
+togglePanel.Size = UDim2.new(0, 300, 0, 380) 
+togglePanel.Position = UDim2.new(0.5, 0, 0.5, 0)
+togglePanel.AnchorPoint = Vector2.new(0.5, 0.5)
+togglePanel.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+togglePanel.Visible = false
+togglePanel.Parent = screenGui
+Instance.new("UICorner", togglePanel).CornerRadius = UDim.new(0, 10)
+
+local tabFrame = Instance.new("Frame") tabFrame.Size = UDim2.new(1, 0, 0, 35) tabFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15) tabFrame.Parent = togglePanel Instance.new("UICorner", tabFrame).CornerRadius = UDim.new(0, 10)
+local tabBtn1 = Instance.new("TextButton") tabBtn1.Size = UDim2.new(0.33, 0, 1, 0) tabBtn1.Position = UDim2.new(0,0,0,0) tabBtn1.BackgroundColor3 = Color3.fromRGB(0, 150, 80) tabBtn1.TextColor3 = Color3.fromRGB(255, 255, 255) tabBtn1.Text = "บิน/เคลื่อนที่" tabBtn1.Font = Enum.Font.GothamBold tabBtn1.TextSize = 12 tabBtn1.Parent = tabFrame
+local tabBtn2 = Instance.new("TextButton") tabBtn2.Size = UDim2.new(0.34, 0, 1, 0) tabBtn2.Position = UDim2.new(0.33,0,0,0) tabBtn2.BackgroundColor3 = Color3.fromRGB(40, 40, 40) tabBtn2.TextColor3 = Color3.fromRGB(200, 200, 200) tabBtn2.Text = "ตำแหน่ง" tabBtn2.Font = Enum.Font.GothamBold tabBtn2.TextSize = 12 tabBtn2.Parent = tabFrame
+local tabBtn3 = Instance.new("TextButton") tabBtn3.Size = UDim2.new(0.33, 0, 1, 0) tabBtn3.Position = UDim2.new(0.67,0,0,0) tabBtn3.BackgroundColor3 = Color3.fromRGB(40, 40, 40) tabBtn3.TextColor3 = Color3.fromRGB(200, 200, 200) tabBtn3.Text = "ตั้งค่า" tabBtn3.Font = Enum.Font.GothamBold tabBtn3.TextSize = 12 tabBtn3.Parent = tabFrame
+
+local contentArea = Instance.new("Frame") contentArea.Size = UDim2.new(1, 0, 1, -35) contentArea.Position = UDim2.new(0, 0, 0, 35) contentArea.BackgroundTransparency = 1 contentArea.ClipsDescendants = true contentArea.Parent = togglePanel
+
+-- ==========================================
+-- ฟังก์ชันสร้าง UI
+-- ==========================================
+local function createSwitch(parent, posY)
+    local bg = Instance.new("TextButton") bg.Size = UDim2.new(0, 50, 0, 26) bg.Position = UDim2.new(1, -15, 0, posY) bg.AnchorPoint = Vector2.new(1, 0) bg.BackgroundColor3 = Color3.fromRGB(80, 80, 80) bg.Text = "" bg.Parent = parent Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+    local circle = Instance.new("Frame") circle.Size = UDim2.new(0, 22, 0, 22) circle.Position = UDim2.new(0, 2, 0.5, 0) circle.AnchorPoint = Vector2.new(0, 0.5) circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255) circle.Parent = bg Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+    return bg, circle
 end
 
--- 🎵 เสียงแจ้งเตือน
-local function playNotificationSound(soundType)
-	local sound = Instance.new("Sound")
-	sound.SoundId = "rbxassetid://138070973725636"
-	if soundType == "On"  then sound.Volume = 0.5
-	elseif soundType == "Off" then sound.Volume = 0.4
-	elseif soundType == "Hit" then sound.Volume = 0.7
-	end
-	sound.Parent = Workspace
-	sound:Play()
-	sound.Ended:Connect(function() sound:Destroy() end)
+local function createToggleAndSlider(parent, posY, name, defaultVal, minVal, maxVal)
+    local text = Instance.new("TextLabel") text.Size = UDim2.new(0, 150, 0, 26) text.Position = UDim2.new(0, 15, 0, posY) text.BackgroundTransparency = 1 text.TextColor3 = Color3.fromRGB(255, 255, 255) text.Text = name text.Font = Enum.Font.GothamBold text.TextSize = 14 text.TextXAlignment = Enum.TextXAlignment.Left text.Parent = parent
+    local bg = Instance.new("TextButton") bg.Size = UDim2.new(0, 50, 0, 26) bg.Position = UDim2.new(1, -15, 0, posY) bg.AnchorPoint = Vector2.new(1, 0) bg.BackgroundColor3 = Color3.fromRGB(80, 80, 80) bg.Text = "" bg.Parent = parent Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+    local circle = Instance.new("Frame") circle.Size = UDim2.new(0, 22, 0, 22) circle.Position = UDim2.new(0, 2, 0.5, 0) circle.AnchorPoint = Vector2.new(0, 0.5) circle.BackgroundColor3 = Color3.fromRGB(255, 255, 255) circle.Parent = bg Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+    local valText = Instance.new("TextLabel") valText.Size = UDim2.new(0, 100, 0, 20) valText.Position = UDim2.new(0, 15, 0, posY + 28) valText.BackgroundTransparency = 1 valText.TextColor3 = Color3.fromRGB(200, 200, 200) valText.Text = tostring(defaultVal) valText.Font = Enum.Font.Gotham valText.TextSize = 12 valText.TextXAlignment = Enum.TextXAlignment.Left valText.Parent = parent
+    local sliderBg = Instance.new("Frame") sliderBg.Size = UDim2.new(0, 270, 0, 8) sliderBg.Position = UDim2.new(0, 15, 0, posY + 48) sliderBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50) sliderBg.Parent = parent Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(1, 0)
+    local sliderFill = Instance.new("Frame") local defaultRatio = (defaultVal - minVal) / (maxVal - minVal) sliderFill.Size = UDim2.new(defaultRatio, 0, 1, 0) sliderFill.BackgroundColor3 = Color3.fromRGB(0, 200, 100) sliderFill.Parent = sliderBg Instance.new("UICorner", sliderFill).CornerRadius = UDim.new(1, 0)
+    local sliderBtn = Instance.new("TextButton") sliderBtn.Size = UDim2.new(0, 14, 0, 14) sliderBtn.Position = UDim2.new(defaultRatio, -7, 0.5, 0) sliderBtn.AnchorPoint = Vector2.new(0, 0.5) sliderBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255) sliderBtn.Text = "" sliderBtn.Parent = sliderBg Instance.new("UICorner", sliderBtn).CornerRadius = UDim.new(1, 0)
+    return bg, circle, valText, sliderBg, sliderFill, sliderBtn
 end
 
--- 🔔 แจ้งเตือนแบบแคปซูล
-local function createNotification(text, statusType)
-	if not myScreenGui then return end
-	if not notifyContainer then
-		notifyContainer = Instance.new("Frame", myScreenGui)
-		notifyContainer.Name = "NotifyContainer"
-		notifyContainer.Size = UDim2.new(0, 340, 0, 350)
-		notifyContainer.Position = UDim2.new(1, -350, 1, -360)
-		notifyContainer.BackgroundTransparency = 1
-		local layout = Instance.new("UIListLayout", notifyContainer)
-		layout.VerticalAlignment = Enum.VerticalAlignment.Bottom
-		layout.SortOrder = Enum.SortOrder.LayoutOrder
-		layout.Padding = UDim.new(0, 10)
-	end
-	local notifBox = Instance.new("Frame", notifyContainer)
-	notifBox.Size = UDim2.new(1, 0, 0, 50)
-	notifBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-	notifBox.BackgroundTransparency = 1
-	Instance.new("UICorner", notifBox).CornerRadius = UDim.new(1, 0)
-	local iconImage = Instance.new("ImageLabel", notifBox)
-	iconImage.Size = UDim2.new(0, 36, 0, 36)
-	iconImage.Position = UDim2.new(0, 8, 0.5, -18)
-	iconImage.BackgroundTransparency = 1
-	iconImage.ImageTransparency = 1
-	Instance.new("UICorner", iconImage).CornerRadius = UDim.new(1, 0)
-	if statusType == "On" or statusType == "Hit" then
-		iconImage.Image = "rbxassetid://134298840674809"
-	elseif statusType == "Off" then
-		iconImage.Image = "rbxassetid://131342117768521"
-	end
-	local textLabel = Instance.new("TextLabel", notifBox)
-	textLabel.Size = UDim2.new(1, -65, 1, 0)
-	textLabel.Position = UDim2.new(0, 52, 0, 0)
-	textLabel.BackgroundTransparency = 1
-	textLabel.Text = text
-	textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	textLabel.TextSize = 15
-	textLabel.Font = Enum.Font.SourceSansBold
-	textLabel.TextXAlignment = Enum.TextXAlignment.Left
-	textLabel.TextTransparency = 1
-	TweenService:Create(notifBox,  TweenInfo.new(0.3), {BackgroundTransparency = 0.1}):Play()
-	TweenService:Create(iconImage, TweenInfo.new(0.3), {ImageTransparency = 0}):Play()
-	TweenService:Create(textLabel, TweenInfo.new(0.3), {TextTransparency = 0}):Play()
-	task.delay(2.2, function()
-		if notifBox and notifBox.Parent then
-			TweenService:Create(notifBox,  TweenInfo.new(0.4), {BackgroundTransparency = 1}):Play()
-			TweenService:Create(iconImage, TweenInfo.new(0.4), {ImageTransparency = 1}):Play()
-			local fo = TweenService:Create(textLabel, TweenInfo.new(0.4), {TextTransparency = 1})
-			fo:Play()
-			fo.Completed:Connect(function() notifBox:Destroy() end)
-		end
-	end)
+local page1 = Instance.new("Frame") page1.Size = UDim2.new(1, 0, 1, 0) page1.BackgroundTransparency = 1 page1.Visible = true page1.Parent = contentArea
+local switchBg1, switchCircle1, valText1, sliderBg1, sliderFill1, sliderBtn1 = createToggleAndSlider(page1, 10, "ระบบบิน", flySpeed, 20, 200)
+local switchBg2, switchCircle2, valText2, sliderBg2, sliderFill2, sliderBtn2 = createToggleAndSlider(page1, 85, "วิ่งไว (Speed)", runSpeed, 20, 200)
+local switchBg3, switchCircle3, valText3, sliderBg3, sliderFill3, sliderBtn3 = createToggleAndSlider(page1, 160, "กระโดดสูง (Jump)", jumpPower, 50, 500)
+
+local page2 = Instance.new("Frame") page2.Size = UDim2.new(1, 0, 1, 0) page2.BackgroundTransparency = 1 page2.Visible = false page2.Parent = contentArea
+local switchBg4, switchCircle4 = createSwitch(page2, 20)
+local switchBg5, switchCircle5 = createSwitch(page2, 60)
+local espPText = Instance.new("TextLabel") espPText.Size = UDim2.new(0, 150, 0, 26) espPText.Position = UDim2.new(0, 15, 0, 20) espPText.BackgroundTransparency = 1 espPText.TextColor3 = Color3.fromRGB(255, 255, 255) espPText.Text = "ผู้เล่น (Players)" espPText.Font = Enum.Font.GothamBold espPText.TextSize = 14 espPText.TextXAlignment = Enum.TextXAlignment.Left espPText.Parent = page2
+local espNPCText = Instance.new("TextLabel") espNPCText.Size = UDim2.new(0, 150, 0, 26) espNPCText.Position = UDim2.new(0, 15, 0, 60) espNPCText.BackgroundTransparency = 1 espNPCText.TextColor3 = Color3.fromRGB(255, 255, 255) espNPCText.Text = "มอนสเตอร์ (NPCs)" espNPCText.Font = Enum.Font.GothamBold espNPCText.TextSize = 14 espNPCText.TextXAlignment = Enum.TextXAlignment.Left espNPCText.Parent = page2
+local warpHint = Instance.new("TextLabel") warpHint.Size = UDim2.new(0, 200, 0, 40) warpHint.Position = UDim2.new(0, 15, 0, 110) warpHint.BackgroundTransparency = 1 warpHint.TextColor3 = Color3.fromRGB(180, 180, 180) warpHint.Text = "รายชื่อผู้เล่นอยู่ด้านขวาจอ\nกดชื่อเพื่อ 'วาร์ปวับ' ทันที" warpHint.Font = Enum.Font.Gotham warpHint.TextSize = 13 warpHint.TextXAlignment = Enum.TextXAlignment.Left warpHint.Parent = page2
+
+local playerListFrame = Instance.new("Frame") playerListFrame.Size = UDim2.new(0, 180, 0, 350) playerListFrame.Position = UDim2.new(1, -15, 0.5, 0) playerListFrame.AnchorPoint = Vector2.new(1, 0.5) playerListFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25) playerListFrame.Visible = false playerListFrame.Parent = screenGui Instance.new("UICorner", playerListFrame).CornerRadius = UDim.new(0, 8) local plStroke = Instance.new("UIStroke") plStroke.Color = Color3.fromRGB(60, 60, 60) plStroke.Thickness = 1 plStroke.Parent = playerListFrame
+local plTitle = Instance.new("TextLabel") plTitle.Size = UDim2.new(1, 0, 0, 30) plTitle.BackgroundColor3 = Color3.fromRGB(15, 15, 15) plTitle.TextColor3 = Color3.fromRGB(255, 255, 255) plTitle.Text = "วาร์ปหาผู้เล่น" plTitle.Font = Enum.Font.GothamBold plTitle.TextSize = 14 plTitle.Parent = playerListFrame Instance.new("UICorner", plTitle).CornerRadius = UDim.new(0, 8)
+local plScroll = Instance.new("ScrollingFrame") plScroll.Size = UDim2.new(1, -10, 1, -40) plScroll.Position = UDim2.new(0, 5, 0, 35) plScroll.BackgroundTransparency = 1 plScroll.ScrollBarThickness = 4 plScroll.Parent = playerListFrame local plLayout = Instance.new("UIListLayout") plLayout.SortOrder = Enum.SortOrder.LayoutOrder plLayout.Padding = UDim.new(0, 4) plLayout.Parent = plScroll
+
+local page3 = Instance.new("Frame") page3.Size = UDim2.new(1, 0, 1, 0) page3.BackgroundTransparency = 1 page3.Visible = false page3.Parent = contentArea
+local resetBtn = Instance.new("TextButton") resetBtn.Size = UDim2.new(0, 270, 0, 40) resetBtn.Position = UDim2.new(0.5, 0, 0, 30) resetBtn.AnchorPoint = Vector2.new(0.5, 0) resetBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50) resetBtn.TextColor3 = Color3.fromRGB(255, 255, 255) resetBtn.Text = "รีเซ็ตตำแหน่งปุ่มเปิดเมนู" resetBtn.Font = Enum.Font.GothamBold resetBtn.TextSize = 14 resetBtn.Parent = page3 Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 6)
+local infoText = Instance.new("TextLabel") infoText.Size = UDim2.new(0, 270, 0, 100) infoText.Position = UDim2.new(0.5, 0, 0, 90) infoText.AnchorPoint = Vector2.new(0.5, 0) infoText.BackgroundTransparency = 1 infoText.TextColor3 = Color3.fromRGB(180, 180, 180) infoText.Text = "ปุ่มลัดคีย์บอร์ด:\n[G] เปิด/ปิดเมนู\n[CapsLock] เปิด/ปิดระบบบิน\n[Z] เปิด/ปิดระบบตำแหน่ง" infoText.Font = Enum.Font.Gotham infoText.TextSize = 13 infoText.Parent = page3
+
+-- ==========================================
+-- Animation Logic
+-- ==========================================
+local tweenInfoSwitch = TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local function playSwitchOn(circle, bg) TweenService:Create(circle, tweenInfoSwitch, {Position = UDim2.new(0, 26, 0.5, 0)}):Play() TweenService:Create(bg, tweenInfoSwitch, {BackgroundColor3 = Color3.fromRGB(0, 200, 100)}):Play() end
+local function playSwitchOff(circle, bg) TweenService:Create(circle, tweenInfoSwitch, {Position = UDim2.new(0, 2, 0.5, 0)}):Play() TweenService:Create(bg, tweenInfoSwitch, {BackgroundColor3 = Color3.fromRGB(80, 80, 80)}):Play() end
+
+local tweenInfoStatus = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local showStatusTween = TweenService:Create(statusLabel, tweenInfoStatus, {Position = UDim2.new(0, 15, 0.5, 0)})
+local hideStatusTween = TweenService:Create(statusLabel, tweenInfoStatus, {Position = UDim2.new(0, -160, 0.5, 0)})
+
+local tweenInfoNotify = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local showNotifyTween = TweenService:Create(notifyLabel, tweenInfoNotify, {Position = UDim2.new(0.5, 0, 1, -20)})
+local hideNotifyTween = TweenService:Create(notifyLabel, tweenInfoNotify, {Position = UDim2.new(0.5, 0, 1, 60)})
+
+local tweenInfoPanel = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local panelShowTween = TweenService:Create(togglePanel, tweenInfoPanel, {Size = UDim2.new(0, 300, 0, 380)})
+local panelHideTween = TweenService:Create(togglePanel, tweenInfoPanel, {Size = UDim2.new(0, 0, 0, 0)})
+
+local isNotifying = false
+local function showNotification(text, bgColor, strokeColor)
+    if isNotifying then return end
+    isNotifying = true
+    notifyLabel.Text = text; notifyLabel.BackgroundColor3 = bgColor; notifyStroke.Color = strokeColor
+    showNotifyTween:Play()
+    task.delay(2, function() hideNotifyTween:Play() task.wait(0.5) isNotifying = false end)
 end
 
--- ============================================================
--- 👁️ ระบบ ESP (Player Tracker)
--- ============================================================
-
-local function getDistanceColor(dist)
-	if dist < 50  then return Color3.fromRGB(255, 80,  80)
-	elseif dist < 150 then return Color3.fromRGB(255, 200, 50)
-	else               return Color3.fromRGB(80,  200, 255)
-	end
+local isPanelOpen = false
+function togglePanelUI()
+    if not isPanelOpen then togglePanel.Visible = true; togglePanel.Size = UDim2.new(0, 0, 0, 0); panelShowTween:Play(); isPanelOpen = true
+    else panelHideTween:Play(); playerListFrame.Visible = false; task.wait(0.3); togglePanel.Visible = false; isPanelOpen = false end
 end
 
-local function removeEspForPlayer(p)
-	local obj = espObjects[p]
-	if obj then
-		if obj.line      and obj.line.Parent      then obj.line:Destroy() end
-		if obj.nameBox   and obj.nameBox.Parent   then obj.nameBox:Destroy() end
-		if obj.distBox   and obj.distBox.Parent   then obj.distBox:Destroy() end
-		if obj.highlight and obj.highlight.Parent  then obj.highlight:Destroy() end
-		espObjects[p] = nil
-	end
+local function switchTab(tabNum)
+    page1.Visible = tabNum == 1; page2.Visible = tabNum == 2; page3.Visible = tabNum == 3
+    playerListFrame.Visible = (tabNum == 2)
+    if tabNum == 2 then refreshPlayerList() end
+    tabBtn1.BackgroundColor3 = tabNum == 1 and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(40, 40, 40)
+    tabBtn2.BackgroundColor3 = tabNum == 2 and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(40, 40, 40)
+    tabBtn3.BackgroundColor3 = tabNum == 3 and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(40, 40, 40)
 end
 
-local function createEspForPlayer(p)
-	if p == player then return end
-	if not espContainer then return end
-	removeEspForPlayer(p)
+-- ระบบลากปุ่ม
+local dragging, dragInput, dragStart, startPos
+local isDragging = false
+mobileBtn.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; dragStart = input.Position; startPos = mobileBtn.Position; isDragging = false input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end) end end)
+mobileBtn.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
+UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then local delta = input.Position - dragStart if delta.Magnitude > 5 then isDragging = true end mobileBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end)
+mobileBtn.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then if not isDragging then togglePanelUI() end end end)
 
-	local line = Instance.new("Frame", espContainer)
-	line.Name = "ESP_Line_" .. p.Name
-	line.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
-	line.BorderSizePixel = 0
-	line.AnchorPoint = Vector2.new(0.5, 0)
-	line.Size = UDim2.new(0, 2, 0, 0)
+-- ==========================================
+-- ระบบบิน / วิ่ง / กระโดด
+-- ==========================================
+local function startFly() if flying then return end local character = player.Character if not character then return end local hrp = character:FindFirstChild("HumanoidRootPart") local humanoid = character:FindFirstChild("Humanoid") if not hrp or not humanoid then return end flying = true humanoid.PlatformStand = false humanoid.AutoRotate = false humanoid.WalkSpeed = 0 bodyVelocity = Instance.new("BodyVelocity") bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge) bodyVelocity.Velocity = Vector3.new(0, 0, 0) bodyVelocity.Parent = hrp bodyGyro = Instance.new("BodyGyro") bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) bodyGyro.P = 9000 bodyGyro.Parent = hrp showStatusTween:Play() playSwitchOn(switchCircle1, switchBg1) btnUp.Visible = true btnDown.Visible = true showNotification("✅ เปิดใช้งานระบบบิน", Color3.fromRGB(40, 150, 40), Color3.fromRGB(100, 255, 100)) end
+local function stopFly() if not flying then return end local character = player.Character if not character then return end local humanoid = character:FindFirstChild("Humanoid") if humanoid then humanoid.PlatformStand = false humanoid.AutoRotate = true humanoid.WalkSpeed = runningFast and runSpeed or 16 end if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end flying = false hideStatusTween:Play() playSwitchOff(switchCircle1, switchBg1) btnUp.Visible = false btnDown.Visible = false holdingUp = false holdingDown = false showNotification("❌ ปิดใช้งานระบบบิน", Color3.fromRGB(200, 40, 40), Color3.fromRGB(255, 100, 100)) end
+local function startRun() if runningFast then return end runningFast = true local character = player.Character if character then local humanoid = character:FindFirstChild("Humanoid") if humanoid then humanoid.WalkSpeed = runSpeed end end playSwitchOn(switchCircle2, switchBg2) showNotification("🏃 เปิดวิ่งไว", Color3.fromRGB(40, 150, 40), Color3.fromRGB(100, 255, 100)) end
+local function stopRun() if not runningFast then return end runningFast = false local character = player.Character if character then local humanoid = character:FindFirstChild("Humanoid") if humanoid then humanoid.WalkSpeed = 16 end end playSwitchOff(switchCircle2, switchBg2) showNotification("❌ ปิดวิ่งไว", Color3.fromRGB(200, 40, 40), Color3.fromRGB(255, 100, 100)) end
+local function startJump() if jumpingHigh then return end jumpingHigh = true local character = player.Character if character then local humanoid = character:FindFirstChild("Humanoid") if humanoid then humanoid.UseJumpPower = true humanoid.JumpPower = jumpPower end end playSwitchOn(switchCircle3, switchBg3) showNotification("🦘 เปิดกระโดดสูง", Color3.fromRGB(40, 150, 40), Color3.fromRGB(100, 255, 100)) end
+local function stopJump() if not jumpingHigh then return end jumpingHigh = false local character = player.Character if character then local humanoid = character:FindFirstChild("Humanoid") if humanoid then humanoid.JumpPower = 50 end end playSwitchOff(switchCircle3, switchBg3) showNotification("❌ ปิดกระโดดสูง", Color3.fromRGB(200, 40, 40), Color3.fromRGB(255, 100, 100)) end
 
-	local nameBox = Instance.new("Frame", espContainer)
-	nameBox.Name = "ESP_NameBox_" .. p.Name
-	nameBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-	nameBox.BackgroundTransparency = 0.35
-	nameBox.BorderSizePixel = 0
-	nameBox.Size = UDim2.new(0, 140, 0, 28)
-	nameBox.AnchorPoint = Vector2.new(0.5, 1)
-	Instance.new("UICorner", nameBox).CornerRadius = UDim.new(0, 4)
+local dragState = {Fly = false, Run = false, Jump = false}
+local function setupSliderDrag(btn, bg, fill, valText, stateKey, minVal, maxVal, callback) btn.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragState[stateKey] = true input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragState[stateKey] = false end end) end end) UserInputService.InputChanged:Connect(function(input) if dragState[stateKey] and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then local relX = math.clamp((input.Position.X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1) fill.Size = UDim2.new(relX, 0, 1, 0) btn.Position = UDim2.new(relX, -7, 0.5, 0) local value = math.floor(minVal + (relX * (maxVal - minVal))) valText.Text = tostring(value) callback(value) end end) end
+setupSliderDrag(sliderBtn1, sliderBg1, sliderFill1, valText1, "Fly", 20, 200, function(val) flySpeed = val end)
+setupSliderDrag(sliderBtn2, sliderBg2, sliderFill2, valText2, "Run", 20, 200, function(val) runSpeed = val if runningFast and not flying then local humanoid = player.Character and player.Character:FindFirstChild("Humanoid") if humanoid then humanoid.WalkSpeed = val end end end)
+setupSliderDrag(sliderBtn3, sliderBg3, sliderFill3, valText3, "Jump", 50, 500, function(val) jumpPower = val if jumpingHigh then local humanoid = player.Character and player.Character:FindFirstChild("Humanoid") if humanoid then humanoid.JumpPower = val end end end)
 
-	local nameLabel = Instance.new("TextLabel", nameBox)
-	nameLabel.Size = UDim2.new(1, -6, 1, 0)
-	nameLabel.Position = UDim2.new(0, 3, 0, 0)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	nameLabel.TextSize = 13
-	nameLabel.Font = Enum.Font.SourceSansBold
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
-	nameLabel.TextStrokeTransparency = 0.4
-	nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	nameLabel.Text = p.DisplayName
-
-	local distBox = Instance.new("Frame", espContainer)
-	distBox.Name = "ESP_DistBox_" .. p.Name
-	distBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-	distBox.BackgroundTransparency = 0.35
-	distBox.BorderSizePixel = 0
-	distBox.Size = UDim2.new(0, 80, 0, 22)
-	distBox.AnchorPoint = Vector2.new(0.5, 1)
-	Instance.new("UICorner", distBox).CornerRadius = UDim.new(0, 4)
-
-	local distLabel = Instance.new("TextLabel", distBox)
-	distLabel.Size = UDim2.new(1, -4, 1, 0)
-	distLabel.Position = UDim2.new(0, 2, 0, 0)
-	distLabel.BackgroundTransparency = 1
-	distLabel.TextColor3 = Color3.fromRGB(180, 255, 180)
-	distLabel.TextSize = 12
-	distLabel.Font = Enum.Font.SourceSansBold
-	distLabel.TextXAlignment = Enum.TextXAlignment.Center
-	distLabel.TextStrokeTransparency = 0.4
-	distLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	distLabel.Text = "0 studs"
-
-	local highlight = Instance.new("Highlight")
-	highlight.FillTransparency = 0.75
-	highlight.OutlineTransparency = 0.1
-	highlight.OutlineColor = Color3.fromRGB(255, 80, 80)
-	highlight.FillColor    = Color3.fromRGB(255, 80, 80)
-
-	espObjects[p] = {
-		line = line,
-		nameBox = nameBox,
-		nameLabel = nameLabel,
-		distBox = distBox,
-		distLabel = distLabel,
-		highlight = highlight,
-	}
+-- ==========================================
+-- ระบบ ESP & เส้นล็อคเป้า (Beam)
+-- ==========================================
+local function clearAllESP() 
+    for obj, data in pairs(espObjects) do 
+        if data then 
+            if data.BillGui then data.BillGui:Destroy() end
+            if data.Beam then data.Beam:Destroy() end
+            if data.Attach1 then data.Attach1:Destroy() end
+        end 
+    end 
+    espObjects = {} 
 end
 
-local function updateEsp()
-	if not myScreenGui then return end
-	local myChar = player.Character
-	local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-	if not myRoot then return end
+local function updateOrCreateESP(obj, name, distance, color, myHrp)
+    if not espObjects[obj] then
+        local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head")
+        if not hrp then return end
+        
+        -- หาจุดยึดของเรา (Attachment0)
+        local att0 = myHrp:FindFirstChild("ESPRootAtt")
+        if not att0 then
+            att0 = Instance.new("Attachment")
+            att0.Name = "ESPRootAtt"
+            att0.Parent = myHrp
+        end
+        
+        -- จุดยึดของศัตรู (Attachment1)
+        local att1 = Instance.new("Attachment")
+        att1.Name = "ESPTargetAtt"
+        att1.Parent = hrp
 
-	local vpSize = camera.ViewportSize
-	local originX = vpSize.X / 2
-	local originY = vpSize.Y
-
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p == player then continue end
-		local obj = espObjects[p]
-		if not obj then continue end
-
-		local targetChar = p.Character
-		local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-		local targetHead = targetChar and targetChar:FindFirstChild("Head")
-
-		local shouldShow = targetRoot ~= nil
-		obj.line.Visible    = shouldShow and espShowLines
-		obj.nameBox.Visible = shouldShow and espShowNames
-		obj.distBox.Visible = shouldShow and espShowDistance
-		obj.highlight.Parent = (shouldShow and targetChar) and targetChar or nil
-
-		if not shouldShow then continue end
-
-		local dist = math.floor((myRoot.Position - targetRoot.Position).Magnitude)
-		if dist > espMaxDistance then
-			obj.line.Visible    = false
-			obj.nameBox.Visible = false
-			obj.distBox.Visible = false
-			obj.highlight.Parent = nil
-			continue
-		end
-
-		local col = getDistanceColor(dist)
-		obj.line.BackgroundColor3      = col
-		obj.highlight.OutlineColor     = col
-		obj.highlight.FillColor        = col
-		obj.distLabel.Text             = dist .. " studs"
-		obj.nameLabel.Text             = p.DisplayName .. "\n[@" .. p.Name .. "]"
-
-		local headPos = targetHead and targetHead.Position or targetRoot.Position + Vector3.new(0, 2, 0)
-		local screenPos, onScreen = camera:WorldToViewportPoint(headPos)
-
-		if onScreen then
-			local sx, sy = screenPos.X, screenPos.Y
-
-			if espShowLines then
-				local dx = sx - originX
-				local dy = sy - originY
-				local length = math.sqrt(dx*dx + dy*dy)
-				local angle  = math.atan2(dy, dx) - math.pi/2
-				obj.line.Size     = UDim2.new(0, 2, 0, length)
-				obj.line.Position = UDim2.new(0, originX, 0, originY)
-				obj.line.Rotation = math.deg(angle)
-			end
-
-			if espShowNames then
-				obj.nameBox.Position = UDim2.new(0, sx, 0, sy - 4)
-				obj.nameBox.Visible = true
-			end
-
-			if espShowDistance then
-				obj.distBox.Position = UDim2.new(0, sx, 0, sy + 20)
-				obj.distBox.Visible = true
-			end
-		else
-			obj.nameBox.Visible = false
-			obj.distBox.Visible = false
-
-			if espShowLines then
-				local dx = sx - originX
-				local dy = sy - originY
-				local length = math.sqrt(dx*dx + dy*dy)
-				local angle  = math.atan2(dy, dx) - math.pi/2
-				obj.line.Size     = UDim2.new(0, 2, 0, math.min(length, vpSize.Y))
-				obj.line.Position = UDim2.new(0, originX, 0, originY)
-				obj.line.Rotation = math.deg(angle)
-				obj.line.Visible  = espShowLines
-			else
-				obj.line.Visible = false
-			end
-		end
-	end
+        -- ข้อความ ESP (แก้เรืองแสง)
+        local bb = Instance.new("BillboardGui") 
+        bb.Name = "TrackerESP"
+        bb.Adornee = hrp; bb.Size = UDim2.new(0, 200, 0, 30); bb.StudsOffset = Vector3.new(0, 4, 0); bb.AlwaysOnTop = true 
+        
+        local txt = Instance.new("TextLabel") 
+        txt.Name = "ESPText"; txt.Size = UDim2.new(1,0,1,0)
+        -- ใส่พื้นหลังสีดำโปร่งแสงเพื่อลดการเรืองแสงจาก Bloom ของเกม
+        txt.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        txt.BackgroundTransparency = 0.4
+        txt.TextColor3 = color 
+        txt.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        txt.TextStrokeTransparency = 0.5
+        txt.Font = Enum.Font.GothamBold; txt.TextSize = 14; txt.Parent = bb
+        bb.Parent = obj
+        
+        -- เส้นล็อคเป้า (Beam) แก้เรืองแสง
+        local beam = Instance.new("Beam")
+        beam.Attachment0 = att0
+        beam.Attachment1 = att1
+        beam.Color = ColorSequence.new(color)
+        beam.Width0 = 0.15
+        beam.Width1 = 0.15
+        beam.Transparency = NumberSequence.new(0.4)
+        beam.LightEmission = 0 -- ปิดการเรืองแสงของเส้น
+        beam.LightInfluence = 0
+        beam.Brightness = 0
+        beam.FaceCamera = true
+        beam.Parent = obj
+        
+        espObjects[obj] = { BillGui = bb, Beam = beam, Attach1 = att1 }
+    end
+    local data = espObjects[obj]
+    if data and data.BillGui and data.BillGui:FindFirstChild("ESPText") then 
+        data.BillGui.ESPText.Text = name .. " [" .. distance .. "m]" 
+    end
 end
 
-local function startEsp()
-	if not myScreenGui then return end
-	if not espContainer then
-		espContainer = Instance.new("Frame", myScreenGui)
-		espContainer.Name = "ESP_Container"
-		espContainer.Size = UDim2.new(1, 0, 1, 0)
-		espContainer.BackgroundTransparency = 1
-		espContainer.ZIndex = 1
-	end
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player then createEspForPlayer(p) end
-	end
-	Players.PlayerAdded:Connect(function(p) if espEnabled then createEspForPlayer(p) end end)
-	Players.PlayerRemoving:Connect(function(p) removeEspForPlayer(p) end)
-	if espConnection then espConnection:Disconnect() end
-	espConnection = RunService.RenderStepped:Connect(updateEsp)
+task.spawn(function() while task.wait(2) do if espNPCsEnabled then npcCache = {} for _, obj in workspace:GetDescendants() do if obj:IsA("Model") then local hum = obj:FindFirstChildOfClass("Humanoid") if hum and not Players:GetPlayerFromCharacter(obj) and obj ~= player.Character then table.insert(npcCache, obj) end end end end end end)
+
+function refreshPlayerList()
+    for _, child in plScroll:GetChildren() do if child:IsA("Frame") then child:Destroy() end end
+    for _, p in Players:GetPlayers() do
+        if p ~= player then
+            local btnFrame = Instance.new("Frame") btnFrame.Size = UDim2.new(1, 0, 0, 35) btnFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35) btnFrame.Parent = plScroll Instance.new("UICorner", btnFrame).CornerRadius = UDim.new(0, 6)
+            local avatar = Instance.new("ImageLabel") avatar.Size = UDim2.new(0, 25, 0, 25) avatar.Position = UDim2.new(0, 5, 0.5, 0) avatar.AnchorPoint = Vector2.new(0, 0.5) avatar.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. p.UserId .. "&width=150&height=150&format=Png" avatar.BackgroundColor3 = Color3.fromRGB(50, 50, 50) avatar.Parent = btnFrame Instance.new("UICorner", avatar).CornerRadius = UDim.new(0.5, 0)
+            local nameLbl = Instance.new("TextLabel") nameLbl.Size = UDim2.new(1, -35, 1, 0) nameLbl.Position = UDim2.new(0, 35, 0, 0) nameLbl.BackgroundTransparency = 1 nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255) nameLbl.Text = p.Name nameLbl.Font = Enum.Font.Gotham nameLbl.TextSize = 13 nameLbl.TextXAlignment = Enum.TextXAlignment.Left nameLbl.Parent = btnFrame
+            local clickBtn = Instance.new("TextButton") clickBtn.Size = UDim2.new(1, 0, 1, 0) clickBtn.BackgroundTransparency = 1 clickBtn.Text = "" clickBtn.Parent = btnFrame
+            clickBtn.MouseButton1Click:Connect(function()
+                local targetChar = p.Character; local myChar = player.Character
+                if myChar and myChar:FindFirstChild("HumanoidRootPart") and targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+                    myChar:PivotTo(targetChar.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3))
+                    showNotification("⚡ วาร์ปหา: " .. p.Name, Color3.fromRGB(0, 100, 200), Color3.fromRGB(100, 180, 255))
+                else showNotification("⚠ ไม่พบตัวละครปลายทาง", Color3.fromRGB(200, 50, 50), Color3.fromRGB(255, 100, 100)) end
+            end)
+        end
+    end
+    plScroll.CanvasSize = UDim2.new(0, 0, 0, plLayout.AbsoluteContentSize.Y)
 end
+Players.PlayerAdded:Connect(function(p) task.wait(1) if playerListFrame.Visible then refreshPlayerList() end end)
+Players.PlayerRemoving:Connect(function(p) if playerListFrame.Visible then refreshPlayerList() end end)
 
-local function stopEsp()
-	if espConnection then espConnection:Disconnect() espConnection = nil end
-	for p, _ in pairs(espObjects) do removeEspForPlayer(p) end
-	espObjects = {}
-end
+-- ==========================================
+-- ระบบควบคุมหลัก RenderStepped
+-- ==========================================
+RunService.RenderStepped:Connect(function()
+    if flying and bodyVelocity and bodyGyro then
+        local moveDir = Vector3.new(0, 0, 0)
+        local character = player.Character local humanoid = character and character:FindFirstChild("Humanoid")
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+        if humanoid and humanoid.MoveDirection.Magnitude > 0 then moveDir = moveDir + Vector3.new(humanoid.MoveDirection.X, 0, humanoid.MoveDirection.Z) end
+        if holdingUp then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if holdingDown then moveDir = moveDir - Vector3.new(0, 1, 0) end
+        if moveDir.Magnitude > 0 then bodyVelocity.Velocity = moveDir.Unit * flySpeed else bodyVelocity.Velocity = Vector3.new(0, 0, 0) end
+        bodyGyro.CFrame = camera.CFrame
+    end
 
-local function toggleEsp()
-	espEnabled = not espEnabled
-	if espEnabled then startEsp(); createNotification("👁️ ESP: เปิดใช้งานแล้ว", "On"); playNotificationSound("On")
-	else stopEsp(); createNotification("🛑 ESP: ปิดใช้งานแล้ว", "Off"); playNotificationSound("Off") end
-	if globalToggleEspBtn then globalToggleEspBtn.Text = espEnabled and "🟢 ESP Tracker: เปิด" or "🔴 ESP Tracker: ปิด"; globalToggleEspBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(46, 139, 87) or Color3.fromRGB(178, 34, 34) end
-end
-
--- ============================================================
--- 🌪️ ระบบ Spinbot (SS) หมุนเร็วทำให้เตะออกได้
--- ============================================================
-local function toggleSpin()
-	spinEnabled = not spinEnabled
-	if spinEnabled then
-		createNotification("🌪️ ระบบหมุน (SS): เปิดใช้งาน", "On"); playNotificationSound("On")
-		if spinConnection then spinConnection:Disconnect() end
-		spinConnection = RunService.RenderStepped:Connect(function()
-			local character = player.Character; local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-			if rootPart then rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(spinSpeed * 0.015), 0) end
-		end)
-	else
-		createNotification("🛑 ระบบหมุน (SS): ปิดใช้งาน", "Off"); playNotificationSound("Off")
-		if spinConnection then spinConnection:Disconnect(); spinConnection = nil end
-	end
-	if globalToggleSpinBtn then globalToggleSpinBtn.Text = spinEnabled and "🟢 ระบบหมุน SS: เปิด" or "🔴 ระบบหมุน SS: ปิด"; globalToggleSpinBtn.BackgroundColor3 = spinEnabled and Color3.fromRGB(46, 139, 87) or Color3.fromRGB(178, 34, 34) end
-end
-
--- ============================================================
--- 🎯 ระบบล็อคหัว (Head Lock) - x-sd
--- ============================================================
-local function findClosestPlayerToCenter()
-	local closestPlayer = nil
-	local shortestDist = math.huge
-	local centerScreen = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p == player then continue end
-		local char = p.Character
-		local head = char and char:FindFirstChild("Head")
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-
-		if head and hum and hum.Health > 0 then
-			local screenPos, onScreen = camera:WorldToViewportPoint(head.Position)
-			if onScreen then
-				local dist = (Vector2.new(screenPos.X, screenPos.Y) - centerScreen).Magnitude
-				if dist < shortestDist then
-					shortestDist = dist
-					closestPlayer = p
-				end
-			end
-		end
-	end
-	return closestPlayer
-end
-
-local function updateHeadLockTargetLabel()
-	if headLockTargetLabel then
-		headLockTargetLabel.Text = headLockTarget and ("🎯 ล็อคเป้า: " .. headLockTarget.DisplayName) or "🎯 ล็อคเป้า: ไม่มี"
-	end
-end
-
-local function startHeadLockLoop()
-	if headLockConnection then headLockConnection:Disconnect() end
-	headLockConnection = RunService.RenderStepped:Connect(function()
-		if headLockEnabled and headLockTarget then
-			local char = headLockTarget.Character
-			local head = char and char:FindFirstChild("Head")
-			local hum = char and char:FindFirstChildOfClass("Humanoid")
-			if head and hum and hum.Health > 0 then
-				camera.CFrame = CFrame.new(camera.CFrame.Position, head.Position)
-			else
-				headLockTarget = nil
-				updateHeadLockTargetLabel()
-			end
-		end
-	end)
-end
-
-local function toggleHeadLockSystem()
-	headLockEnabled = not headLockEnabled
-	if headLockEnabled then
-		createNotification("🎯 ระบบล็อคหัว: เปิดใช้งาน", "On"); playNotificationSound("On")
-		startHeadLockLoop()
-	else
-		createNotification("🛑 ระบบล็อคหัว: ปิดใช้งาน", "Off"); playNotificationSound("Off")
-		headLockTarget = nil
-		if headLockConnection then headLockConnection:Disconnect(); headLockConnection = nil end
-	end
-	updateHeadLockTargetLabel()
-	if globalToggleHeadLockBtn then globalToggleHeadLockBtn.Text = headLockEnabled and "🟢 ระบบล็อคหัว: เปิด" or "🔴 ระบบล็อคหัว: ปิด"; globalToggleHeadLockBtn.BackgroundColor3 = headLockEnabled and Color3.fromRGB(46, 139, 87) or Color3.fromRGB(178, 34, 34) end
-end
-
-local function handleHeadLockKey()
-	if not headLockEnabled then return end
-	if headLockTarget then
-		headLockTarget = nil
-		createNotification("🎯 ยกเลิกล็อคเป้าหมาย", "Off")
-		playNotificationSound("Off")
-	else
-		local target = findClosestPlayerToCenter()
-		if target then
-			headLockTarget = target
-			createNotification("🎯 ล็อคเป้าหมาย: " .. target.DisplayName, "Hit")
-			playNotificationSound("Hit")
-		else
-			createNotification("🚫 ไม่พบผู้เล่นในจอ", "Off")
-		end
-	end
-	updateHeadLockTargetLabel()
-end
-
--- ============================================================
--- ระบบอื่นๆ
--- ============================================================
-
-local function setClayGraphics(enable)
-	clayGraphicsEnabled = enable; _G.ClayGraphicsEnabled = enable
-	if enable then
-		for _, v in ipairs(Workspace:GetDescendants()) do if v:IsA("BasePart") and not v:IsA("Terrain") then if not originalMaterials[v] then originalMaterials[v] = v.Material end; v.Material = Enum.Material.SmoothPlastic end end
-		createNotification("⚙️ ภาพดินน้ำมัน: เปิดใช้งาน", "On"); playNotificationSound("On")
-	else
-		for part, material in pairs(originalMaterials) do if part and part.Parent then part.Material = material end end; table.clear(originalMaterials)
-		createNotification("🛑 ภาพดินน้ำมัน: ปิดใช้งาน", "Off"); playNotificationSound("Off")
-	end
-	if globalToggleClayBtn then globalToggleClayBtn.Text = clayGraphicsEnabled and "🟢 ภาพดินน้ำมัน: เปิด" or "🔴 ภาพดินน้ำมัน: ปิด"; globalToggleClayBtn.BackgroundColor3 = clayGraphicsEnabled and Color3.fromRGB(46, 139, 87) or Color3.fromRGB(178, 34, 34) end
-end
-
-local function startRamSystem()
-	if ramConnection then ramConnection:Disconnect() end
-	ramConnection = RunService.Heartbeat:Connect(function()
-		if not ramEnabled then return end
-		local character = player.Character; local myRoot = character and character:FindFirstChild("HumanoidRootPart")
-		if not myRoot then return end
-		local checkRadius = 6; local overlapParams = OverlapParams.new(); overlapParams.FilterType = Enum.RaycastFilterType.Exclude; overlapParams.FilterDescendantsInstances = {character}
-		local parts = Workspace:GetPartBoundsInRadius(myRoot.Position, checkRadius, overlapParams)
-		for _, part in ipairs(parts) do
-			if part:IsA("BasePart") and not part.Anchored then
-				part:SetNetworkOwner(nil); local pushDirection = (part.Position - myRoot.Position).Unit
-				local ramForce = spinEnabled and 300 or 150; part.AssemblyLinearVelocity = (pushDirection * ramForce) + Vector3.new(0, 50, 0); part.AssemblyAngularVelocity = Vector3.new(math.random(-20, 20), math.random(-20, 20), math.random(-20, 20))
-			end
-			local targetChar = part.Parent; local targetHumanoid = targetChar and targetChar:FindFirstChildOfClass("Humanoid"); local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-			if targetHumanoid and targetRoot and targetChar ~= character then
-				local pushDirection = (targetRoot.Position - myRoot.Position).Unit; local kickForce = spinEnabled and 400 or 200; local liftForce = spinEnabled and 150 or 80
-				targetRoot.AssemblyLinearVelocity = (pushDirection * kickForce) + Vector3.new(0, liftForce, 0)
-				local gyroForce = Instance.new("AngularVelocity"); gyroForce.MaxTorque = 500000; local spinForce = spinEnabled and 100 or 50; gyroForce.AngularVelocity = Vector3.new(math.random(-spinForce, spinForce), math.random(-spinForce, spinForce), math.random(-spinForce, spinForce)); gyroForce.Attachment0 = targetRoot:FindFirstChildOfClass("Attachment") or Instance.new("Attachment", targetRoot); gyroForce.Parent = targetRoot
-				task.delay(0.2, function() if gyroForce then gyroForce:Destroy() end end); playNotificationSound("Hit")
-			end
-		end
-	end)
-end
-
-local function toggleRamMode()
-	ramEnabled = not ramEnabled
-	if ramEnabled then createNotification("💥 เปิดโหมดชนสิ่งของปลิว!", "On"); startRamSystem() else createNotification("🛑 ปิดโหมดชนสิ่งของปลิว", "Off"); if ramConnection then ramConnection:Disconnect(); ramConnection = nil end end
-	if globalToggleRamBtn then globalToggleRamBtn.Text = ramEnabled and "🟢 ระบบชนกระเด็น: เปิด" or "🔴 ระบบชนกระเด็น: ปิด"; globalToggleRamBtn.BackgroundColor3 = ramEnabled and Color3.fromRGB(46, 139, 87) or Color3.fromRGB(178, 34, 34) end
-end
-
-local function disableFly(silent)
-	flyEnabled = false
-	if flyConnection then flyConnection:Disconnect(); flyConnection = nil end
-	if bodyVelocity then bodyVelocity:Destroy(); bodyVelocity = nil end
-	if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
-	local character = player.Character; if character then local humanoid = character:FindFirstChildOfClass("Humanoid"); if humanoid then humanoid.PlatformStand = false end end
-	if not silent then createNotification("🛑 โหมดบิน: ปิดใช้งาน", "Off"); playNotificationSound("Off") end
-	if globalToggleFlyBtn then globalToggleFlyBtn.Text = "🔴 ระบบบิน: ปิดอยู่"; globalToggleFlyBtn.BackgroundColor3 = Color3.fromRGB(178, 34, 34) end
-end
-
-local function enableFly()
-	local character = player.Character; if not character then return end; local rootPart = character:FindFirstChild("HumanoidRootPart"); local humanoid = character:FindFirstChildOfClass("Humanoid"); if not rootPart or not humanoid then return end
-	flyEnabled = true; humanoid.PlatformStand = true
-	bodyVelocity = Instance.new("BodyVelocity"); bodyVelocity.MaxForce = Vector3.new(1e5, 1e5, 1e5); bodyVelocity.Velocity = Vector3.new(0, 0, 0); bodyVelocity.Parent = rootPart
-	bodyGyro = Instance.new("BodyGyro"); bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5); bodyGyro.P = 15000; bodyGyro.D = 500; bodyGyro.CFrame = camera.CFrame; bodyGyro.Parent = rootPart
-	createNotification("✈️ โหมดบิน: เปิดใช้งาน", "On"); playNotificationSound("On")
-	if globalToggleFlyBtn then globalToggleFlyBtn.Text = "🟢 ระบบบิน: กำลังบิน"; globalToggleFlyBtn.BackgroundColor3 = Color3.fromRGB(46, 139, 87) end
-
-	flyConnection = RunService.RenderStepped:Connect(function()
-		if not character.Parent or not rootPart.Parent or not flyEnabled then disableFly(true); return end
-		local currentFlySpeed = (speedEnabled or isSprinting) and (customSpeed * sprintMultiplier) or flySpeed; local camCF = camera.CFrame; local camLook = camCF.LookVector; local camRight = camCF.RightVector
-		local moveDirection = Vector3.new(0, 0, 0)
-		if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDirection += Vector3.new(camLook.X, 0, camLook.Z) end; if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDirection -= Vector3.new(camLook.X, 0, camLook.Z) end; if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDirection -= Vector3.new(camRight.X, 0, camRight.Z) end; if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDirection += Vector3.new(camRight.X, 0, camRight.Z) end
-		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDirection += Vector3.new(0, 1, 0) end; if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDirection -= Vector3.new(0, 1, 0) end
-
-		if moveDirection.Magnitude > 0 then
-			bodyVelocity.Velocity = moveDirection.Unit * currentFlySpeed; if not spinEnabled then bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + moveDirection) end
-		else
-			bodyVelocity.Velocity = Vector3.new(0, 0, 0); if not spinEnabled then local flatLook = Vector3.new(camLook.X, 0, camLook.Z); if flatLook.Magnitude > 0 then bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook) end end
-		end
-	end)
-end
-
-local function toggleFly() if flyEnabled then disableFly(false) else enableFly() end end
-
-RunService.RenderStepped:Connect(function(dt)
-	local character = player.Character; if not character then return end; local humanoid = character:FindFirstChildOfClass("Humanoid"); if not humanoid then return end
-	if not flyEnabled then
-		if speedEnabled then humanoid.WalkSpeed = isSprinting and (customSpeed * sprintMultiplier) or customSpeed elseif isSprinting then humanoid.WalkSpeed = customSpeed * sprintMultiplier else humanoid.WalkSpeed = normalWalkSpeed end
-		if jumpEnabled then humanoid.JumpPower = customJump; humanoid.UseJumpPower = true else humanoid.JumpPower = 50 end
-	end
-	if noclipEnabled then for _, part in ipairs(character:GetDescendants()) do if part:IsA("BasePart") then part.CanCollide = false end end end
+    local isTrackingAny = espPlayersEnabled or espNPCsEnabled
+    if isTrackingAny then
+        local myChar = player.Character; local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        if myHrp then
+            if espPlayersEnabled then for _, p in Players:GetPlayers() do if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then local dist = math.floor((myHrp.Position - p.Character.HumanoidRootPart.Position).Magnitude) updateOrCreateESP(p.Character, p.Name, dist, Color3.fromRGB(0, 255, 100), myHrp) end end end
+            if espNPCsEnabled then for _, npc in npcCache do if npc and npc:FindFirstChild("HumanoidRootPart") and npc:FindFirstChildOfClass("Humanoid") and npc:FindFirstChildOfClass("Humanoid").Health > 0 then local dist = math.floor((myHrp.Position - npc.HumanoidRootPart.Position).Magnitude) updateOrCreateESP(npc, npc.Name, dist, Color3.fromRGB(255, 255, 0), myHrp) end end end
+        end
+    else clearAllESP() end
 end)
 
-UserInputService.JumpRequest:Connect(function()
-	if infJumpEnabled and not flyEnabled then local character = player.Character; if character then local h = character:FindFirstChildOfClass("Humanoid"); if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end end end
+-- ==========================================
+-- ระบบกดปุ่ม
+-- ==========================================
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end 
+    if input.KeyCode == Enum.KeyCode.G then togglePanelUI() end
+    if input.KeyCode == Enum.KeyCode.CapsLock then if not flying then startFly() else stopFly() end end
+    if input.KeyCode == Enum.KeyCode.Z then
+        local isAnyOn = espPlayersEnabled or espNPCsEnabled
+        if not isAnyOn then espPlayersEnabled = true; playSwitchOn(switchCircle4, switchBg4); espNPCsEnabled = true; playSwitchOn(switchCircle5, switchBg5) showNotification("📍 เปิดมองเห็นผู้เล่น & NPC", Color3.fromRGB(40, 100, 150), Color3.fromRGB(100, 200, 255)) else espPlayersEnabled = false; playSwitchOff(switchCircle4, switchBg4); espNPCsEnabled = false; playSwitchOff(switchCircle5, switchBg5) showNotification("❌ ปิดมองเห็นผู้เล่น & NPC", Color3.fromRGB(200, 40, 40), Color3.fromRGB(255, 100, 100)) end
+    end
 end)
 
--- ============================================================
--- 🏗️ UI Builder
--- ============================================================
+tabBtn1.MouseButton1Click:Connect(function() switchTab(1) end)
+tabBtn2.MouseButton1Click:Connect(function() switchTab(2) end)
+tabBtn3.MouseButton1Click:Connect(function() switchTab(3) end)
+switchBg1.MouseButton1Click:Connect(function() if not flying then startFly() else stopFly() end end)
+switchBg2.MouseButton1Click:Connect(function() if not runningFast then startRun() else stopRun() end end)
+switchBg3.MouseButton1Click:Connect(function() if not jumpingHigh then startJump() else stopJump() end end)
+switchBg4.MouseButton1Click:Connect(function() if not espPlayersEnabled then espPlayersEnabled = true; playSwitchOn(switchCircle4, switchBg4) showNotification("📍 เปิดมองเห็นผู้เล่น", Color3.fromRGB(40, 100, 150), Color3.fromRGB(100, 200, 255)) else espPlayersEnabled = false; playSwitchOff(switchCircle4, switchBg4) showNotification("❌ ปิดมองเห็นผู้เล่น", Color3.fromRGB(200, 40, 40), Color3.fromRGB(255, 100, 100)) end end)
+switchBg5.MouseButton1Click:Connect(function() if not espNPCsEnabled then espNPCsEnabled = true; playSwitchOn(switchCircle5, switchBg5) showNotification("📍 เปิดมองเห็น NPC", Color3.fromRGB(40, 100, 150), Color3.fromRGB(100, 200, 255)) else espNPCsEnabled = false; playSwitchOff(switchCircle5, switchBg5) showNotification("❌ ปิดมองเห็น NPC", Color3.fromRGB(200, 40, 40), Color3.fromRGB(255, 100, 100)) end end)
 
-local function createMenuButton(name, text, positionY, parent)
-	local button = Instance.new("TextButton"); button.Name = name .. "Btn"; button.Size = UDim2.new(1, -10, 0, 45); button.Position = UDim2.new(0, 5, 0, positionY); button.BackgroundColor3 = Color3.fromRGB(50, 50, 50); button.Text = text; button.TextColor3 = Color3.fromRGB(255, 255, 255); button.TextSize = 16; button.Font = Enum.Font.SourceSansBold; button.BorderSizePixel = 0; button.Parent = parent; Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6); return button
-end
-
-local function createPage(name, titleText, parent)
-	local page = Instance.new("Frame"); page.Name = name .. "Page"; page.Size = UDim2.new(1, -20, 1, -20); page.Position = UDim2.new(0, 10, 0, 10); page.BackgroundTransparency = 1; page.Visible = false; page.Parent = parent
-	local title = Instance.new("TextLabel"); title.Size = UDim2.new(1, 0, 0, 35); title.BackgroundTransparency = 1; title.Text = "📌 " .. titleText; title.TextColor3 = Color3.fromRGB(255, 255, 255); title.TextSize = 24; title.TextXAlignment = Enum.TextXAlignment.Left; title.Font = Enum.Font.SourceSansBold; title.Parent = page; return page
-end
-
-local function updatePlayerList(scrollFrame)
-	for _, child in ipairs(scrollFrame:GetChildren()) do if child:IsA("TextButton") then child:Destroy() end end
-	local yOffset = 0
-	for _, p in ipairs(Players:GetPlayers()) do
-		local pButton = Instance.new("TextButton"); pButton.Size = UDim2.new(1, -15, 0, 40); pButton.Position = UDim2.new(0, 0, 0, yOffset); pButton.BackgroundColor3 = (p == player) and Color3.fromRGB(50, 90, 50) or Color3.fromRGB(40, 40, 40); pButton.Text = "  👤 " .. p.DisplayName .. " (@" .. p.Name .. ")"; pButton.TextColor3 = Color3.fromRGB(255, 255, 255); pButton.TextSize = 16; pButton.TextXAlignment = Enum.TextXAlignment.Left; pButton.Font = Enum.Font.SourceSansBold; pButton.BorderSizePixel = 0; pButton.Parent = scrollFrame; Instance.new("UICorner", pButton).CornerRadius = UDim.new(0, 4)
-		if p ~= player then pButton.MouseButton1Click:Connect(function() if player.Character and p.Character then player.Character:MoveTo(p.Character.PrimaryPart.Position + Vector3.new(0, 2, 0)) end end) end
-		yOffset += 45
-	end
-	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset)
-end
-
-local function toggleMenu() if myFrame then myFrame.Visible = not myFrame.Visible; if myFrame.Visible and myFrame.ContentContainer.PlayersPage.Visible then updatePlayerList(myFrame.ContentContainer.PlayersPage.PlayerScroll) end end end
-
-local function makeMobileDraggable(gui)
-	local dragging, dragStart, startPos, hasMoved; gui.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch then dragging, hasMoved, dragStart, startPos = true, false, input.Position, gui.Position end end)
-	UserInputService.InputChanged:Connect(function(input) if dragging and input.UserInputType == Enum.UserInputType.Touch then if (input.Position - dragStart).Magnitude > 5 then hasMoved = true end; local delta = input.Position - dragStart; gui.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end)
-	gui.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch then dragging = false; if not hasMoved then toggleMenu() end end end)
-end
-
-local function createCirclePreview(parent)
-	local bg = Instance.new("Frame", parent); bg.Size = UDim2.new(0, 80, 0, 80); bg.Position = UDim2.new(0.5, -40, 1, -145); bg.BackgroundColor3 = Color3.fromRGB(45, 45, 45); bg.ClipsDescendants = true; Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
-	local vp = Instance.new("ViewportFrame", bg); vp.Size = UDim2.new(1, 0, 1, 0); vp.BackgroundTransparency = 1; local char = player.Character or player.CharacterAdded:Wait(); char.Archivable = true; local clone = char:Clone(); clone.Parent = vp; local hrp = clone:WaitForChild("HumanoidRootPart"); local cam = Instance.new("Camera", vp); cam.CFrame = CFrame.new(hrp.Position + hrp.CFrame.LookVector * 3.5 + Vector3.new(0,1.5,0), hrp.Position + Vector3.new(0,0.5,0)); vp.CurrentCamera = cam
-	RunService.RenderStepped:Connect(function(dt) if bg.Parent then hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(dt * 40), 0) end end)
-end
-
-local function createKeybindSetting(labelText, defaultKeyName, posY, parent, changeCallback)
-	local label = Instance.new("TextLabel", parent); label.Size = UDim2.new(0, 200, 0, 35); label.Position = UDim2.new(0, 210, 0, posY); label.Text = labelText; label.TextColor3 = Color3.fromRGB(200, 200, 200); label.BackgroundTransparency = 1; label.TextXAlignment = Enum.TextXAlignment.Left; label.Font = Enum.Font.SourceSansBold; label.TextSize = 15
-	local box = Instance.new("TextBox", parent); box.Size = UDim2.new(0, 110, 0, 35); box.Position = UDim2.new(0, 340, 0, posY); box.BackgroundColor3 = Color3.fromRGB(45, 45, 45); box.Text = defaultKeyName; box.TextColor3 = Color3.fromRGB(100, 255, 255); box.Font = Enum.Font.SourceSansBold; box.TextSize = 15; Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4)
-	box.FocusLost:Connect(function() local inputName = trimString(box.Text); local success, newKey = pcall(function() return Enum.KeyCode[inputName] end); if success and newKey then changeCallback(newKey); box.Text = newKey.Name; box.TextColor3 = Color3.fromRGB(100, 255, 255) else box.TextColor3 = Color3.fromRGB(255, 100, 100) end end)
-end
-
-local function createUI()
-	myScreenGui = Instance.new("ScreenGui", playerGui); myScreenGui.Name = UI_NAME; myScreenGui.ResetOnSpawn = false
-	local mobileBtn = Instance.new("ImageButton", myScreenGui); mobileBtn.Size = UDim2.new(0, 50, 0, 50); mobileBtn.Position = UDim2.new(0, 15, 0, 15); mobileBtn.Image = "rbxassetid://88587297244568"; mobileBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40); Instance.new("UICorner", mobileBtn).CornerRadius = UDim.new(1, 0); makeMobileDraggable(mobileBtn); mobileBtn.MouseButton1Click:Connect(function() if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then return end; toggleMenu() end)
-	myFrame = Instance.new("Frame", myScreenGui); myFrame.Size = UDim2.new(0, 620, 0, 380); myFrame.Position = UDim2.new(0.5, -310, 0.5, -190); myFrame.BackgroundTransparency = 1
-	local actualFrame = Instance.new("Frame", myFrame); actualFrame.Size = UDim2.new(1, 0, 1, 0); actualFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", actualFrame).CornerRadius = UDim.new(0, 10)
-	local sidebar = Instance.new("Frame", actualFrame); sidebar.Size = UDim2.new(0, 150, 1, 0); sidebar.BackgroundColor3 = Color3.fromRGB(35, 35, 35); Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 10)
-	local container = Instance.new("Frame", actualFrame); container.Name = "ContentContainer"; container.Size = UDim2.new(1, -150, 1, 0); container.Position = UDim2.new(0, 150, 0, 0); container.BackgroundTransparency = 1
-
-	local pageGfx = createPage("Gfx", "ตั้งค่าระบบเกม & ปุ่มลัด", container)
-	globalToggleClayBtn = Instance.new("TextButton", pageGfx); globalToggleClayBtn.Size = UDim2.new(0, 180, 0, 40); globalToggleClayBtn.Position = UDim2.new(0, 10, 0, 55); globalToggleClayBtn.Font = Enum.Font.SourceSansBold; globalToggleClayBtn.TextSize = 16; globalToggleClayBtn.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", globalToggleClayBtn).CornerRadius = UDim.new(0, 6); globalToggleClayBtn.Text = clayGraphicsEnabled and "🟢 ภาพดินน้ำมัน: เปิด" or "🔴 ภาพดินน้ำมัน: ปิด"; globalToggleClayBtn.BackgroundColor3 = clayGraphicsEnabled and Color3.fromRGB(46,139,87) or Color3.fromRGB(178,34,34); globalToggleClayBtn.MouseButton1Click:Connect(function() setClayGraphics(not clayGraphicsEnabled) end); createKeybindSetting("⌨️ ปุ่มลัดภาพดินน้ำมัน:", clayKeybind.Name, 57, pageGfx, function(k) clayKeybind = k end)
-	globalToggleFlyBtn = Instance.new("TextButton", pageGfx); globalToggleFlyBtn.Size = UDim2.new(0, 180, 0, 40); globalToggleFlyBtn.Position = UDim2.new(0, 10, 0, 110); globalToggleFlyBtn.Font = Enum.Font.SourceSansBold; globalToggleFlyBtn.TextSize = 16; globalToggleFlyBtn.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", globalToggleFlyBtn).CornerRadius = UDim.new(0, 6); globalToggleFlyBtn.Text = "🔴 ระบบบิน: ปิดอยู่"; globalToggleFlyBtn.BackgroundColor3 = Color3.fromRGB(178,34,34); globalToggleFlyBtn.MouseButton1Click:Connect(function() toggleFly() end); createKeybindSetting("⌨️ ปุ่มลัดโหมดบิน:", flyKeybind.Name, 112, pageGfx, function(k) flyKeybind = k end)
-	globalToggleRamBtn = Instance.new("TextButton", pageGfx); globalToggleRamBtn.Size = UDim2.new(0, 180, 0, 40); globalToggleRamBtn.Position = UDim2.new(0, 10, 0, 165); globalToggleRamBtn.Font = Enum.Font.SourceSansBold; globalToggleRamBtn.TextSize = 16; globalToggleRamBtn.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", globalToggleRamBtn).CornerRadius = UDim.new(0, 6); globalToggleRamBtn.Text = "🔴 ระบบชนกระเด็น: ปิด"; globalToggleRamBtn.BackgroundColor3 = Color3.fromRGB(178,34,34); globalToggleRamBtn.MouseButton1Click:Connect(function() toggleRamMode() end); createKeybindSetting("⌨️ ปุ่มลัดชนกระเด็น:", ramKeybind.Name, 167, pageGfx, function(k) ramKeybind = k end)
-	globalToggleEspBtn = Instance.new("TextButton", pageGfx); globalToggleEspBtn.Size = UDim2.new(0, 180, 0, 40); globalToggleEspBtn.Position = UDim2.new(0, 10, 0, 220); globalToggleEspBtn.Font = Enum.Font.SourceSansBold; globalToggleEspBtn.TextSize = 16; globalToggleEspBtn.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", globalToggleEspBtn).CornerRadius = UDim.new(0, 6); globalToggleEspBtn.Text = "🔴 ESP Tracker: ปิด"; globalToggleEspBtn.BackgroundColor3 = Color3.fromRGB(178,34,34); globalToggleEspBtn.MouseButton1Click:Connect(function() toggleEsp() end); createKeybindSetting("⌨️ ปุ่มลัด ESP:", espKeybind.Name, 222, pageGfx, function(k) espKeybind = k end)
-	globalToggleSpinBtn = Instance.new("TextButton", pageGfx); globalToggleSpinBtn.Size = UDim2.new(0, 180, 0, 40); globalToggleSpinBtn.Position = UDim2.new(0, 10, 0, 275); globalToggleSpinBtn.Font = Enum.Font.SourceSansBold; globalToggleSpinBtn.TextSize = 16; globalToggleSpinBtn.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", globalToggleSpinBtn).CornerRadius = UDim.new(0, 6); globalToggleSpinBtn.Text = "🔴 ระบบหมุน SS: ปิด"; globalToggleSpinBtn.BackgroundColor3 = Color3.fromRGB(178,34,34); globalToggleSpinBtn.MouseButton1Click:Connect(function() toggleSpin() end); createKeybindSetting("⌨️ ปุ่มลัดหมุน SS:", spinKeybind.Name, 277, pageGfx, function(k) spinKeybind = k end)
-
-	local pagePower = createPage("Power", "ปรับค่าความสามารถตัวละคร", container)
-	local function createStatRow(labelName, defaultVal, posY, toggleCallback, valueCallback)
-		local label = Instance.new("TextLabel", pagePower); label.Size = UDim2.new(0, 140, 0, 35); label.Position = UDim2.new(0, 10, 0, posY); label.Text = labelName; label.TextColor3 = Color3.fromRGB(200,200,200); label.BackgroundTransparency = 1; label.TextXAlignment = Enum.TextXAlignment.Left; label.Font = Enum.Font.SourceSansBold; label.TextSize = 16
-		local box = Instance.new("TextBox", pagePower); box.Size = UDim2.new(0, 70, 0, 35); box.Position = UDim2.new(0, 155, 0, posY); box.BackgroundColor3 = Color3.fromRGB(45,45,45); box.Text = tostring(defaultVal); box.TextColor3 = Color3.fromRGB(255,255,255); box.Font = Enum.Font.SourceSansBold; box.TextSize = 16; Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4); box.FocusLost:Connect(function() local num = tonumber(box.Text); if num then valueCallback(num) end end)
-		local tBtn = Instance.new("TextButton", pagePower); tBtn.Size = UDim2.new(0, 80, 0, 35); tBtn.Position = UDim2.new(0, 235, 0, posY); tBtn.TextColor3 = Color3.fromRGB(255,255,255); tBtn.Text = "🔴 ปิด"; tBtn.BackgroundColor3 = Color3.fromRGB(178,34,34); tBtn.Font = Enum.Font.SourceSansBold; tBtn.TextSize = 16; Instance.new("UICorner", tBtn).CornerRadius = UDim.new(0, 4); local state = false; tBtn.MouseButton1Click:Connect(function() state = not state; tBtn.Text = state and "🟢 เปิด" or "🔴 ปิด"; tBtn.BackgroundColor3 = state and Color3.fromRGB(46,139,87) or Color3.fromRGB(178,34,34); toggleCallback(state) end)
-	end
-	createStatRow("⚡ ความเร็ว (Speed):", customSpeed, 50, function(s) speedEnabled = s end, function(v) customSpeed = v end); createKeybindSetting("⌨️ ปุ่มลัดวิ่งเร็ว:", sprintKeybind.Name, 57, pagePower, function(k) sprintKeybind = k end)
-	local sprintHint = Instance.new("TextLabel", pagePower); sprintHint.Size = UDim2.new(0, 350, 0, 20); sprintHint.Position = UDim2.new(0, 10, 0, 90); sprintHint.BackgroundTransparency = 1; sprintHint.Text = "(กดค้างปุ่มด้านบน = Sprint x2 Speed, ไม่มีหมดพลัง)"; sprintHint.TextColor3 = Color3.fromRGB(180, 180, 180); sprintHint.Font = Enum.Font.SourceSansItalic; sprintHint.TextSize = 13; sprintHint.TextXAlignment = Enum.TextXAlignment.Left
-	createStatRow("🚀 แรงกระโดด (Jump):", 50, 115, function(s) jumpEnabled = s end, function(v) customJump = v end)
-	createStatRow("🌪️ ความเร็วหมุน (SS):", spinSpeed, 180, function(s) if s then toggleSpin() else toggleSpin() end end, function(v) spinSpeed = v end)
-	local espRangeLabel = Instance.new("TextLabel", pagePower); espRangeLabel.Size = UDim2.new(0, 140, 0, 35); espRangeLabel.Position = UDim2.new(0, 10, 0, 225); espRangeLabel.Text = "👁️ ระยะ ESP (studs):"; espRangeLabel.TextColor3 = Color3.fromRGB(200,200,200); espRangeLabel.BackgroundTransparency = 1; espRangeLabel.TextXAlignment = Enum.TextXAlignment.Left; espRangeLabel.Font = Enum.Font.SourceSansBold; espRangeLabel.TextSize = 15
-	local espRangeBox = Instance.new("TextBox", pagePower); espRangeBox.Size = UDim2.new(0, 70, 0, 35); espRangeBox.Position = UDim2.new(0, 155, 0, 225); espRangeBox.BackgroundColor3 = Color3.fromRGB(45,45,45); espRangeBox.Text = tostring(espMaxDistance); espRangeBox.TextColor3 = Color3.fromRGB(255,255,255); espRangeBox.Font = Enum.Font.SourceSansBold; espRangeBox.TextSize = 16; Instance.new("UICorner", espRangeBox).CornerRadius = UDim.new(0, 4); espRangeBox.FocusLost:Connect(function() local v = tonumber(espRangeBox.Text); if v and v > 0 then espMaxDistance = v end end)
-	local function makeEspToggle(labelTxt, posX, posY, getter, setter) local btn = Instance.new("TextButton", pagePower); btn.Size = UDim2.new(0, 120, 0, 32); btn.Position = UDim2.new(0, posX, 0, posY); btn.Font = Enum.Font.SourceSansBold; btn.TextSize = 14; btn.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6); local function refresh() btn.Text = getter() and ("🟢 " .. labelTxt) or ("🔴 " .. labelTxt); btn.BackgroundColor3 = getter() and Color3.fromRGB(46,139,87) or Color3.fromRGB(178,34,34) end; refresh(); btn.MouseButton1Click:Connect(function() setter(not getter()); refresh() end) end
-	makeEspToggle("แสดงเส้น",  10,  270, function() return espShowLines    end, function(v) espShowLines    = v end); makeEspToggle("แสดงชื่อ",  140, 270, function() return espShowNames    end, function(v) espShowNames    = v end); makeEspToggle("แสดงระยะ",  270, 270, function() return espShowDistance end, function(v) espShowDistance = v end)
-	local toggleInfJump = Instance.new("TextButton", pagePower); toggleInfJump.Size = UDim2.new(0, 150, 0, 40); toggleInfJump.Position = UDim2.new(0, 10, 0, 318); toggleInfJump.Font = Enum.Font.SourceSansBold; toggleInfJump.TextSize = 16; toggleInfJump.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", toggleInfJump).CornerRadius = UDim.new(0, 6); local function updateInfJump() toggleInfJump.Text = infJumpEnabled and "🟢 โดดไม่จำกัด" or "🔴 โดดไม่จำกัด"; toggleInfJump.BackgroundColor3 = infJumpEnabled and Color3.fromRGB(46,139,87) or Color3.fromRGB(178,34,34) end; updateInfJump(); toggleInfJump.MouseButton1Click:Connect(function() infJumpEnabled = not infJumpEnabled; updateInfJump() end)
-	local toggleNoclip = Instance.new("TextButton", pagePower); toggleNoclip.Size = UDim2.new(0, 150, 0, 40); toggleNoclip.Position = UDim2.new(0, 170, 0, 318); toggleNoclip.Font = Enum.Font.SourceSansBold; toggleNoclip.TextSize = 16; toggleNoclip.TextColor3 = Color3.fromRGB(255,255,255); Instance.new("UICorner", toggleNoclip).CornerRadius = UDim.new(0, 6); local function updateNoclip() toggleNoclip.Text = noclipEnabled and "🟢 เดินทะลุ (On)" or "🔴 เดินทะลุ (Off)"; toggleNoclip.BackgroundColor3 = noclipEnabled and Color3.fromRGB(46,139,87) or Color3.fromRGB(178,34,34) end; updateNoclip(); toggleNoclip.MouseButton1Click:Connect(function() noclipEnabled = not noclipEnabled; updateNoclip() end)
-
-	-- 🎯 หน้า x-sd (ล็อคหัว)
-	local pageXsd = createPage("Xsd", "x-sd", container)
-
-	globalToggleHeadLockBtn = Instance.new("TextButton", pageXsd)
-	globalToggleHeadLockBtn.Size = UDim2.new(0, 180, 0, 40)
-	globalToggleHeadLockBtn.Position = UDim2.new(0, 10, 0, 55)
-	globalToggleHeadLockBtn.Font = Enum.Font.SourceSansBold
-	globalToggleHeadLockBtn.TextSize = 16
-	globalToggleHeadLockBtn.TextColor3 = Color3.fromRGB(255,255,255)
-	Instance.new("UICorner", globalToggleHeadLockBtn).CornerRadius = UDim.new(0, 6)
-	globalToggleHeadLockBtn.Text = "🔴 ระบบล็อคหัว: ปิด"
-	globalToggleHeadLockBtn.BackgroundColor3 = Color3.fromRGB(178,34,34)
-	globalToggleHeadLockBtn.MouseButton1Click:Connect(function() toggleHeadLockSystem() end)
-	createKeybindSetting("⌨️ ปุ่มล็อค/ยกเลิก:", headLockKeybind.Name, 57, pageXsd, function(k) headLockKeybind = k end)
-
-	headLockTargetLabel = Instance.new("TextLabel", pageXsd)
-	headLockTargetLabel.Size = UDim2.new(0, 300, 0, 35)
-	headLockTargetLabel.Position = UDim2.new(0, 10, 0, 110)
-	headLockTargetLabel.BackgroundTransparency = 1
-	headLockTargetLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-	headLockTargetLabel.Font = Enum.Font.SourceSansBold
-	headLockTargetLabel.TextSize = 18
-	headLockTargetLabel.TextXAlignment = Enum.TextXAlignment.Left
-	headLockTargetLabel.Text = "🎯 ล็อคเป้า: ไม่มี"
-
-	local xsdHint = Instance.new("TextLabel", pageXsd)
-	xsdHint.Size = UDim2.new(0, 400, 0, 50)
-	xsdHint.Position = UDim2.new(0, 10, 0, 155)
-	xsdHint.BackgroundTransparency = 1
-	xsdHint.Text = "วิธีใช้: เปิดระบบล็อคหัวก่อน -> จากนั้นเล็งไปที่ศัตรู -> กด E เพื่อล็อค\nกด E ซ้ำอีกครั้งเพื่อยกเลิกการล็อค"
-	xsdHint.TextColor3 = Color3.fromRGB(200, 200, 200)
-	xsdHint.Font = Enum.Font.SourceSansItalic
-	xsdHint.TextSize = 15
-	xsdHint.TextXAlignment = Enum.TextXAlignment.Left
-	xsdHint.TextWrapped = true
-
-	local pagePlayers = createPage("Players", "จัดการผู้เล่น (วาร์ป)", container); local scroll = Instance.new("ScrollingFrame", pagePlayers); scroll.Name = "PlayerScroll"; scroll.Size = UDim2.new(1, 0, 1, -50); scroll.Position = UDim2.new(0, 0, 0, 50); scroll.BackgroundTransparency = 1; scroll.ScrollBarThickness = 5
-
-	local btnGfx    = createMenuButton("Gfx",    "⚙️ ตั้งค่าระบบ",  15,  sidebar)
-	local btnPower  = createMenuButton("Power",  "📌 ความสามารถ",   65,  sidebar)
-	local btnPlayer = createMenuButton("Player", "👥 ดูผู้เล่น",    115, sidebar)
-	local btnXsd    = createMenuButton("Xsd",    "🎯 x-sd",         165, sidebar) -- เพิ่มปุ่มเมนู x-sd
-
-	btnGfx.MouseButton1Click:Connect(function() pageGfx.Visible = true; pagePower.Visible = false; pagePlayers.Visible = false; pageXsd.Visible = false end)
-	btnPower.MouseButton1Click:Connect(function() pageGfx.Visible = false; pagePower.Visible = true; pagePlayers.Visible = false; pageXsd.Visible = false end)
-	btnPlayer.MouseButton1Click:Connect(function() pageGfx.Visible = false; pagePower.Visible = false; pagePlayers.Visible = true; pageXsd.Visible = false; updatePlayerList(scroll) end)
-	btnXsd.MouseButton1Click:Connect(function() pageGfx.Visible = false; pagePower.Visible = false; pagePlayers.Visible = false; pageXsd.Visible = true end)
-
-	pageGfx.Visible = true
-
-	local fps = Instance.new("TextLabel", sidebar); fps.Size = UDim2.new(1, 0, 0, 20); fps.Position = UDim2.new(0, 0, 1, -25); fps.TextColor3 = Color3.fromRGB(100,255,255); fps.BackgroundTransparency = 1; fps.Font = Enum.Font.SourceSansBold; fps.TextSize = 14
-	local frames, lastTime = 0, os.clock(); RunService.RenderStepped:Connect(function() frames += 1; if os.clock() - lastTime >= 1 then fps.Text = "📈 FPS: " .. frames; frames, lastTime = 0, os.clock() end end)
-	createCirclePreview(sidebar)
-end
-
--- ============================================================
--- ⌨️ Keybind handler & Sprint Logic
--- ============================================================
-UserInputService.InputBegan:Connect(function(input, gpe)
-	if gpe then return end
-	if input.KeyCode == Enum.KeyCode.Q then if not playerGui:FindFirstChild(UI_NAME) then createUI() else toggleMenu() end end
-	if input.KeyCode == flyKeybind  then toggleFly() end
-	if input.KeyCode == clayKeybind then setClayGraphics(not clayGraphicsEnabled) end
-	if input.KeyCode == ramKeybind  then toggleRamMode() end
-	if input.KeyCode == espKeybind  then toggleEsp() end
-	if input.KeyCode == spinKeybind then toggleSpin() end
-
-	-- 🎯 กดปุ่มล็อคหัว (E)
-	if input.KeyCode == headLockKeybind then handleHeadLockKey() end
-
-	if input.KeyCode == sprintKeybind then isSprinting = true end
+resetBtn.MouseButton1Click:Connect(function()
+    mobileBtn.Position = UDim2.new(0, 20, 0, 20)
+    showNotification("🔄 รีเซ็ตตำแหน่งปุ่มแล้ว", Color3.fromRGB(100, 100, 100), Color3.fromRGB(200, 200, 200))
 end)
-
-UserInputService.InputEnded:Connect(function(input, gpe)
-	if input.KeyCode == sprintKeybind then isSprinting = false end
-end)
-
-if not playerGui:FindFirstChild(UI_NAME) then createUI() end
